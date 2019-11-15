@@ -8,13 +8,10 @@ body, html{
 	font-family: "Helvetica Neue", Arial, Helveticam sans-serif;
 }
 
-div{
+div#header{
 	display:flex;
 	justify-content:center;
 	align-items:center;
-}
-
-div#header{
 	position:relative;
 	vertical-align:top;
 	background-color: black;
