@@ -54,24 +54,43 @@ function activate_drawing(){
 
 //activates elevation graph
 function createElevationGraph() {
+	var colorMappings = {
+		steepness: {
+			'1': {
+				text: '<5',
+				color: '#69f264'
+			},
+			'2': {
+				text: '5-16',
+				color: '#dee054'
+			},
+			'3': {
+				text: '16-35',
+				color: '#cf5352'
+			},
+			'4': {
+				text: '>35',
+				color: '#be1612'
+			}
+		}
+	};
 	elevationGraph = L.control.heightgraph({
-		width: 800,
-		height: 280,
-		margins: {
-			top: 10,
-			right: 30,
-			bottom: 55,
-			left: 50
-		},
-		position: "bottomright",
-		expandCallback: function(expanded){
-			console.log(this.expand)
+			width: 800,
+			height: 280,
+			margins: {
+				top: 10,
+				right: 30,
+				bottom: 55,
+				left: 50
+			},
+			position: "bottomright",
+			expandCallback: function (expanded) {
 
-			this.expand = false
-		},
-		mappings: undefined
-	});
-
+				this.expand = false
+			},
+			mappings: colorMappings
+		}
+	);
 	elevationGraph.addTo(map);
 	//console.log(elevationGraph)
 }
@@ -80,13 +99,19 @@ function createElevationGraph() {
 //Adds additional vertices for elevation profiles
 function smoothLine(geometry) {
 	var smoothedLine = [];
+	//iterate through linestring points array
 	for (var j = 0; j < geometry.length; j++) {
+		//add current point to new line
 		smoothedLine.push(geometry[j]);
+		//convert current point to geodesy library format
 		var point1 = LatLon(geometry[j].lat,geometry[j].lng);
+		//if next point exists
 		if (geometry[j + 1]) {
+			// convert next point to geodesy library format
 			var point2 = LatLon(geometry[j+1].lat,geometry[j+1].lng);
+			//create 5 intermediate points between this two points
+			//and add them to new line
 			for (var i = 0.2; i < 1; i=i+0.2) {
-				//console.log(i)
 				var point3 = point1.intermediatePointTo(point2,i);
 
 				smoothedLine.push(L.latLng(point3.lat,point3.lon))
@@ -97,7 +122,24 @@ function smoothLine(geometry) {
 }
 
 
-//control for swipe functionality
+
+
+
+//convert slope to category
+function slopeToCategory(slope){
+	if(slope <= 5) {
+		return 1
+	} else
+	if(slope > 5 && slope<=16.5){
+		return 2
+	} else
+	if (slope > 16.5 && slope <= 35){
+		return 3
+	}else
+	if(slope>35){
+		return 4
+	}
+}
 
 
 //highlight feature
@@ -123,18 +165,26 @@ function hilightFeature(feature) {
 }
 
 //converts standart geojson object to appropriate for elevation plugin form
-function prepareGeoJSONForElev(geojson){
-	return [{
-		type: "FeatureCollection",
-		features: [{
-			type: "Feature",
-			geometry: geojson.geometry,
-			properties: geojson.properties
-		}],
-		properties: {
-			summary: "Steepness"
-		}
-	}];
+function prepareGeoJSONForElev(jsonlayer){
+
+	featureCollection = turf.lineSegment(jsonlayer);
+
+	turf.featureEach(featureCollection,(current,index) => {
+	//console.log(turf.coordAll(current));
+	//console.log(turf.length(current,{units:'meters'}));
+	var coords = turf.coordAll(current);
+	var angle = turf.radiansToDegrees(Math.atan((coords[1][2]-coords[0][2])/turf.length(current,{units:'meters'})));
+	console.log(angle);
+	current.properties = {attributeType: slopeToCategory(Math.abs(angle))};
+	console.log(current)
+	});
+	//console.log(jsonLayer);
+	//Math.atan()
+	featureCollection['properties'] = {
+		summary:"steepness"
+	};
+
+	return [featureCollection];
 }
 
 //Higlightes clicked line feature and adds it to elevation graph
@@ -158,22 +208,25 @@ function lineFeatureOnClickHandler(e) {
 //triggers on feature creation end, converts created feature to appropriate geoJSON format
 //and loads it to elevation graph
 function createEventHandler(e) {
-	//console.log(e.layer.getLatLngs());
 
+	//console.log(e.layer.getLatLngs());
+	//Get array of line points, pass it to function, set back new array
+	//with additional points along
 	e.layer.setLatLngs(smoothLine(e.layer.getLatLngs()));
-	var jsonLayer = e.layer.toGeoJSON();
+	var rawGeojson = e.layer.toGeoJSON();
 
 	//iterate through layer latlongs, pass it to get_elevation function
 	//and add returned elevation to respective geojson coordinates
 	e.layer.getLatLngs().forEach(f=>{
 		//console.log(e.layer.getLatLngs().indexOf(f));
-		jsonLayer.geometry.coordinates[e.layer.getLatLngs().indexOf(f)].push(get_elevation(f))
+		rawGeojson.geometry.coordinates[e.layer.getLatLngs().indexOf(f)].push(get_elevation(f))
 	});
-	//console.log(jsonLayer);
 
-	var elevGeojson = prepareGeoJSONForElev(jsonLayer);
+	//Convert modified geojson with additional points and elevation to appropriate for
+	//elevation graph format
+	var elevGeojson = prepareGeoJSONForElev(rawGeojson);
 	//console.log(elevGeojson)
-	editsLayer.addData(elevGeojson);
+	editsLayer.addData(rawGeojson);
 	editsLayer.eachLayer(l =>{
 		l.on('click',lineFeatureOnClickHandler)
 	})
