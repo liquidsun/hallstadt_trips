@@ -288,7 +288,7 @@ function compileOverpassRequest(overpassQuery){
 		!elemQuery ? elemQuery = 'nwr[' + key + '=' + e + '](' + bounds + ');' : elemQuery += 'nwr[' + key + '=' + e  + '](' + bounds + ');';
 	});
 	var query = '?data=[out:json];(' + elemQuery + '); out body geom;';
-	var baseUrl = 'http://overpass-api.de/api/interpreter';
+	var baseUrl = 'https://overpass-api.de/api/interpreter';
 	var resultUrl = baseUrl + query;
 	return resultUrl
 }
@@ -369,7 +369,7 @@ async function createOsmPopup(feature,keyTag) {
 
 //Get photos by place name from flickr
 async function getFlickrPhoto(string) {
-	var promise = $.getJSON("http://api.flickr.com/services/feeds/photos_public.gne?jsoncallback=?",
+	var promise = $.getJSON("https://api.flickr.com/services/feeds/photos_public.gne?jsoncallback=?",
 		{
 			tags: string,
 			tagmode: "any",
@@ -450,7 +450,7 @@ function on_load() {
 	});
 
 	//define basemaps
-	const landscape = L.tileLayer('http://{s}.tile.thunderforest.com/landscape/{z}/{x}/{y}.png?apikey=b90b8bc10e3147d8ae791be159d56aff',
+	const landscape = L.tileLayer('https://{s}.tile.thunderforest.com/landscape/{z}/{x}/{y}.png?apikey=b90b8bc10e3147d8ae791be159d56aff',
 		{attribution: 'Tiles from Thunderforest',});
 
 
