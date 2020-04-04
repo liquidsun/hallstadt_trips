@@ -3,12 +3,12 @@ var map;
 var imageryOverlay;
 var elevationGraph;
 var editsLayer;
-var highlightedFeature;
+var highlightedLineFeature;
 
 //Loads json from url or local path and returns it
-function load_json(source) {
+function load_json(source,params) {
 	let json_result;
-	json_result = fetch(source).then(function(data){
+	json_result = fetch(source,params).then(function(data){
 	 	return data.json();
 	}).then(function (result) {
 		 return result
@@ -19,13 +19,13 @@ function load_json(source) {
 //Returns elevation from MapBox elevation service for given latlon
 function get_elevation(latlon) {
 	//console.log(location)
-	var color = elevPicker.getColor(latlon)
+	var color = elevPicker.getColor(latlon);
 	let R = color[0];
 	let G = color[1];
 	let B = color[2];
 
-	let height = -10000 + ((R * 256 * 256 + G * 256 + B) * 0.1)
-	let heightRounded = Math.round( height * 10) / 10
+	let height = -10000 + ((R * 256 * 256 + G * 256 + B) * 0.1);
+	let heightRounded = Math.round( height * 10) / 10;
 	return heightRounded;
 	
 }
@@ -57,19 +57,19 @@ function createElevationGraph() {
 	var colorMappings = {
 		steepness: {
 			'1': {
-				text: '<5',
+				text: 'Light slope',
 				color: '#69f264'
 			},
 			'2': {
-				text: '5-16',
+				text: 'Medium slope',
 				color: '#dee054'
 			},
 			'3': {
-				text: '16-35',
+				text: 'Steep',
 				color: '#cf5352'
 			},
 			'4': {
-				text: '>35',
+				text: 'Extremely steep',
 				color: '#be1612'
 			}
 		}
@@ -122,10 +122,24 @@ function smoothLine(geometry) {
 }
 
 
+//Adds additional vertices using turf.js alternative
 
+function smoothLineTurf(geometry) {
+	var smoothedLine = [];
+	for (var j = 0; j < geometry.length; j++) {
+		smoothedLine.push(geometry[j]);
+		if (geometry[j + 1]) {
+			var segment = turf.lineString([[geometry[j].lng,geometry[j].lat],[geometry[j+1].lng,geometry[j+1].lat]]);
+			for (var i = 50; i<=turf.length(segment,{units: 'meters'});i = i+50){
+				var smoothPoint = turf.along(segment,i,{units: 'meters'});
+				smoothedLine.push(L.latLng(smoothPoint.geometry.coordinates[1],smoothPoint.geometry.coordinates[0]))
+			}
+		}
+	}
+	return smoothedLine
+}
 
-
-//convert slope to category
+//convert slope value to category
 function slopeToCategory(slope){
 	if(slope <= 5) {
 		return 1
@@ -143,43 +157,64 @@ function slopeToCategory(slope){
 
 
 //highlight feature
-function hilightFeature(feature) {
-	 if (highlightedFeature){
-		console.log()
-		 editsLayer.resetStyle(highlightedFeature)
-	 }
+function hilightFeature(layer) {
 
-	highlightedFeature = feature;  //access to activefeature that was hovered over through e.target
-	//console.log('here')
-	highlightedFeature.setStyle({
-		weight: 5,
-		color: '#e5e407',
-		dashArray: '',
-		fillOpacity: 0.7
-	});
+	switch (layer.feature.geometry.type) {
+		case 'LineString':
+			if (highlightedLineFeature){
+				highlightedLineFeature.setStyle(highlightedLineFeature.defaultOptions.style)
+			}
+			//console.log(feature);
+			highlightedLineFeature = layer;
+			//console.log('here')
+			highlightedLineFeature.setStyle({
+				weight: 5,
+				color: '#e5e407',
+				fillOpacity: 0.7
 
-	if (!L.Browser.ie && !L.Browser.opera) {
-		highlightedFeature.bringToFront();
+			});
+			if (!L.Browser.ie && !L.Browser.opera) {
+				highlightedLineFeature.bringToFront();
+			}
+		// case 'Point':
+		// 	if (highLightedPoint){
+		//
+		// 		console.log(highLightedPoint);
+		// 		highLightedPoint.setIcon(highLightedPoint.defaultOptions.ic)
+		// 	}
+		// 	//console.log(feature);
+		//
+		// 	let defaultIcon = layer.defaultOptions.icon;
+		// 	highLightedPoint = layer;
+		// 	let icon = highLightedPoint.options.icon;
+		// 	icon.options.markerColor = "yellow";
+		// 	console.log(icon);
+		// 	highLightedPoint.setIcon(icon)
+
+
 	}
+
+
 	//highLightLayer.addTo(map)
 }
 
-//converts standart geojson object to appropriate for elevation plugin form
+
+//converts standart geojson object to appropriate form for elevation plugin form
 function prepareGeoJSONForElev(jsonlayer){
 
+	//Cut geojson line to segments
 	featureCollection = turf.lineSegment(jsonlayer);
 
 	turf.featureEach(featureCollection,(current,index) => {
-	//console.log(turf.coordAll(current));
-	//console.log(turf.length(current,{units:'meters'}));
+
 	var coords = turf.coordAll(current);
+	//calculate slope angle in segment
 	var angle = turf.radiansToDegrees(Math.atan((coords[1][2]-coords[0][2])/turf.length(current,{units:'meters'})));
-	console.log(angle);
+	//add it as a property to segment
 	current.properties = {attributeType: slopeToCategory(Math.abs(angle))};
-	console.log(current)
 	});
-	//console.log(jsonLayer);
-	//Math.atan()
+
+	//define property name for styling
 	featureCollection['properties'] = {
 		summary:"steepness"
 	};
@@ -187,8 +222,180 @@ function prepareGeoJSONForElev(jsonlayer){
 	return [featureCollection];
 }
 
+
+//create icon style for OSM layers
+function getStyle(osmType,iconColor){
+	var Marker;
+	switch (osmType) {
+		case 'viewpoint':
+			Marker = L.ExtraMarkers.icon({
+				icon: 'fa-camera',
+				markerColor: 'orange-dark',
+				shape: 'square',
+				prefix: 'fas',
+				iconColor:iconColor
+			});
+			return Marker;
+		case 'alpine_hut':
+			Marker = L.ExtraMarkers.icon({
+				icon: 'fa-home',
+				markerColor: 'orange-dark',
+				shape: 'square',
+				prefix: 'fas',
+				iconColor:iconColor
+			});
+			return Marker;
+		case 'picnic_site':
+			Marker = L.ExtraMarkers.icon({
+				icon: 'fa-tree',
+				markerColor: 'orange-dark',
+				shape: 'square',
+				prefix: 'fas',
+				iconColor:iconColor
+			});
+			return Marker;
+		case 'parking':
+			Marker = L.ExtraMarkers.icon({
+				icon: 'fa-parking',
+				markerColor: 'blue-dark',
+				shape: 'square',
+				prefix: 'fas',
+				iconColor:iconColor
+			});
+			return Marker;
+		case 'bus_stop':
+			Marker = L.ExtraMarkers.icon({
+				icon: 'fa-bus-alt',
+				markerColor: 'blue-dark',
+				shape: 'square',
+				prefix: 'fas',
+				iconColor:iconColor
+			});
+			return Marker;
+	}
+
+}
+
+//Compiles overpass api request from array of desired OSM tag with array of values
+function compileOverpassRequest(overpassQuery){
+
+	var bounds = (map.getBounds().getSouth() - 0.05) + ',' + (map.getBounds().getWest() - 0.05) + ','
+		+ (map.getBounds().getNorth() + 0.05) + ',' + (map.getBounds().getEast() +0.05);
+
+	var elemQuery;
+	var key = Object.keys(overpassQuery)[0];
+	overpassQuery[key].forEach(e=>{
+		!elemQuery ? elemQuery = 'nwr[' + key + '=' + e + '](' + bounds + ');' : elemQuery += 'nwr[' + key + '=' + e  + '](' + bounds + ');';
+	});
+	var query = '?data=[out:json];(' + elemQuery + '); out body geom;';
+	var baseUrl = 'http://overpass-api.de/api/interpreter';
+	var resultUrl = baseUrl + query;
+	return resultUrl
+}
+
+
+//adds OSM features from overpass as geojson
+async function addOverpass(overpassQuery) {
+	var key = Object.keys(overpassQuery)[0]
+	var	osmData = await load_json(compileOverpassRequest(overpassQuery));
+	var resultAsGeojson = osmtogeojson(osmData);
+	console.log(resultAsGeojson)
+	//console.log(resultAsGeojson);
+	var resultLayer = L.geoJson(resultAsGeojson, {
+		style:feature=> {
+			return {color: "#ff0000"};
+			},
+		filter: (feature, layer)=> {
+			var isPolygon = (feature.geometry) && (feature.geometry.type !== undefined) && (feature.geometry.type === "Polygon");
+			if (isPolygon) {
+				feature.geometry.type = "Point";
+				var polygonCenter = L.latLngBounds(feature.geometry.coordinates[0]).getCenter();
+				feature.geometry.coordinates = [ polygonCenter.lat, polygonCenter.lng ];
+			}
+			if (feature.properties[key]=='viewpoint'&&!feature.properties.name){
+				return false;
+			}
+			return true;
+			},
+		pointToLayer: (feature, latlng)=>  {
+			return L.marker(latlng, {icon:getStyle(feature.properties[key],'white'),riseOnHover:true});
+			},
+		onEachFeature: (feature, layer)=>  {
+			// layer.on('mouseover',e=>{
+			// 	hilightFeature(e.target);
+			// });
+			createOsmPopup(feature,key).then(e=> {
+				//console.log(e);
+				layer.bindPopup(e,{className:'custom-popup'});
+			})
+        	}
+        });
+	return resultLayer;
+    }
+
+//Creates popup content for osm feature
+async function createOsmPopup(feature,keyTag) {
+	var popupContent = "";
+	popupContent = popupContent + "<div class=container><dl class=row><dt class = col-3>Type:</dt><dd class = col-9>"
+		+ feature.properties[keyTag] + "</dd>";
+
+	//var keys = Object.keys(feature.properties);
+		if(feature.properties['wikipedia']) {
+			popupContent = popupContent + "<dt class = col-3>Wiki:</dt><dd class = col-9><a target=_blank href=https://de.wikipedia.org/wiki/"
+				+ feature.properties['wikipedia'] + "\>" + 'Wikipedia' + "</a></dd>";
+		}
+		if(feature.properties['website']) {
+		popupContent = popupContent + "<dt class = col-3>Website: </dt><dd class = col-9><a target=_blank href="
+			+ feature.properties['website'] + "\>" + 'Website' + "</a></dd>";
+		}
+		if(feature.properties['name']){
+			popupContent = popupContent + "</dl></div>";
+			var img = await getFlickrPhoto(feature.properties['name']).then(
+				e=>{
+					return e
+				});
+			if(img) {
+				popupContent = popupContent + "<img height=200 width=200 src=" + img + ">";
+			}
+
+			return popupContent;
+
+		}if(!feature.properties['name']){
+			//console.log('here')
+		 popupContent = popupContent + "</dl></div>";
+		 return popupContent
+	 }
+}
+
+//Get photos by place name from flickr
+async function getFlickrPhoto(string) {
+	var promise = $.getJSON("http://api.flickr.com/services/feeds/photos_public.gne?jsoncallback=?",
+		{
+			tags: string,
+			tagmode: "any",
+			format: "json"
+		}).then(data=>{
+		if (data.items.length>0) {
+			var rnd = Math.floor(Math.random() * data.items.length);
+			return data.items[rnd]['media']['m'].replace("_m", "_b");
+		}
+		});
+	//console.log(image)
+			return await promise
+}
+
+//Handler for export geojson layer
+function onExportCLick(layer) {
+	var file = 'customTracks' + '.geojson';
+	saveAs(new File([JSON.stringify(layer.toGeoJSON())], file, {
+		type: "text/plain;charset=utf-8"
+	}), file);
+
+}
+
 //Higlightes clicked line feature and adds it to elevation graph
 function lineFeatureOnClickHandler(e) {
+	//console.log(e)
 	if (!map.pm.globalRemovalEnabled()) {
 		hilightFeature(e.target);
 
@@ -198,49 +405,39 @@ function lineFeatureOnClickHandler(e) {
 	}
 }
 
-// function evevntHandlersSetter(feature, layer) {
-// 	layer.on({
-// 		click: lineFeatureOnClickHandler
-// 	} );
-// }
 
 
 //triggers on feature creation end, converts created feature to appropriate geoJSON format
 //and loads it to elevation graph
 function createEventHandler(e) {
 
-	//console.log(e.layer.getLatLngs());
-	//Get array of line points, pass it to function, set back new array
+	//Get array of line points, pass it to function, get back new array
 	//with additional points along
-	e.layer.setLatLngs(smoothLine(e.layer.getLatLngs()));
+	e.layer.setLatLngs(smoothLineTurf(e.layer.getLatLngs()));
 	var rawGeojson = e.layer.toGeoJSON();
 
 	//iterate through layer latlongs, pass it to get_elevation function
 	//and add returned elevation to respective geojson coordinates
 	e.layer.getLatLngs().forEach(f=>{
-		//console.log(e.layer.getLatLngs().indexOf(f));
 		rawGeojson.geometry.coordinates[e.layer.getLatLngs().indexOf(f)].push(get_elevation(f))
 	});
 
 	//Convert modified geojson with additional points and elevation to appropriate for
 	//elevation graph format
 	var elevGeojson = prepareGeoJSONForElev(rawGeojson);
-	//console.log(elevGeojson)
+
 	editsLayer.addData(rawGeojson);
 	editsLayer.eachLayer(l =>{
 		l.on('click',lineFeatureOnClickHandler)
-	})
-	//console.log(editsLayer)
-	map.removeLayer(e.layer)
-	//console.log(editsLayer.getLayers());
-	//console.log(featureCollection);
+	});
+
+	map.removeLayer(e.layer);
 	elevationGraph.addData(elevGeojson);
 }
 
 //event handler to remove feature from geojson layer permanently
 
 function removeHandler(e){
-	console.log(e)
 	editsLayer.removeLayer(e.layer)
 }
 
@@ -249,44 +446,23 @@ function on_load() {
 	map = L.map('map', {
 		center: [47.58, 13.65],
 		zoom: 13,
-		minZoom: 12,
-		maxZoom: 16
+		minZoom: 12
 	});
 
 	//define basemaps
 	const landscape = L.tileLayer('http://{s}.tile.thunderforest.com/landscape/{z}/{x}/{y}.png?apikey=b90b8bc10e3147d8ae791be159d56aff',
 		{attribution: 'Tiles from Thunderforest',});
 
-	// const toner = L.tileLayer('http://tile.stamen.com/toner/{z}/{x}/{y}.png',
-	// 	{attribution: 'Map tiles by <a href="http://stamen.com">Stamen Design</a>, ' +
-	// 			'under <a href="http://creativecommons.org/licenses/by/3.0">CC BY 3.0</a>. ' +
-	// 			'Data by <a href="http://openstreetmap.org">OpenStreetMap</a>, under ' +
-	// 			'<a href="http://www.openstreetmap.org/copyright">ODbL</a>' });
 
 	var Esri_WorldImagery = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
 
 	});
 	imageryOverlay = Esri_WorldImagery
-	// var BasemapAT_orthofoto = L.tileLayer('https://maps{s}.wien.gv.at/basemap/bmapoverlay/normal/google3857/{z}/{y}/{x}.{format}', {
-	// 	maxZoom: 19,
-	// 	attribution: 'Datenquelle: <a href="https://www.basemap.at">basemap.at</a>',
-	// 	subdomains: ["", "1", "2", "3", "4"],
-	// 	format: 'png',
-	// 	bounds: [[46.35877, 8.782379], [49.037872, 17.189532]]
-	// });
 
 	elevPicker = L.tileLayer.colorPicker('https://api.mapbox.com/v4/mapbox.terrain-rgb/{z}/{x}/{y}.pngraw?' +
 		'access_token=pk.eyJ1IjoibGlxdWlkc3VuODYiLCJhIjoiY2syeDkwb2RzMDlnbTNncGQ3amU1aGR2OSJ9.YU3MLFHx8BoYbrF0Xl9Lag',
 		{attribution: 'Tiles from mapbox',
-			id: 'mapbox.outdoors',
-			accessToken: 'your mapbox accesstoken'}).addTo(map)
-
-	// for using the two base maps in the layer control, defined a baseMaps variable
-	const baseMaps = {
-		"Imagery": Esri_WorldImagery,
-		"Landscape": landscape
-	};
-
+			id: 'mapbox.outdoors'}).addTo(map)
 
 	landscape.addTo(map);
 	Esri_WorldImagery.addTo(map);
@@ -294,6 +470,16 @@ function on_load() {
 	//Add map controls
 	const scale_control = new L.control.scale({imperial:false, metric:true, position:'bottomleft', maxWidth:100})
 	scale_control.addTo(map)
+
+	var layerControl = new L.control.layers().addTo(map);
+
+	//add cluster layer
+
+	var markers = L.markerClusterGroup({
+		showCoverageOnHover: false,
+		zoomToBoundsOnClick: false,
+		maxClusterRadius:50
+	});
 
 	//add vector layers
 
@@ -305,28 +491,28 @@ function on_load() {
 	}
 	});
 	editsLayer.addTo(map);
+	layerControl.addOverlay(editsLayer,'CustomTracks');
 
+	//add osm overpass layers
+	var osmTourism =  addOverpass({tourism:['alpine_hut','picnic_site','viewpoint']});
 
-	//adding a GeoJSON polygon feature set
+	var osmAmenities =  addOverpass({amenity:['parking']});
 
+	var osmBusStops =  addOverpass({highway:['bus_stop']});
 
-	// let fedstates_promise = load_json('data/Federalstates.geojson')
-	// fedstates_promise.then(res => {
-	// 	fedstates = L.geoJSON(res);
-	// 	fedstates.addTo(map);
-	// 	console.log(res.features[0].geometry.coordinates)
-	// 	console.log(L.GeoJSON.coordsToLatLngs(res.features[0].geometry.coordinates))
-	// });
-
-
-	//create vector group
-	var features = {
-	"Custom tracks":editsLayer,
-	//"Salzburg": fedstates
-	};
-
-	//add layercontrol
-	L.control.layers(null,features).addTo(map);
+	osmTourism.then(l=>{
+		map.addLayer(l);
+		layerControl.addOverlay(l,'Tourism');
+	});
+	osmAmenities.then(l=>{
+		markers.addLayer(l);
+		map.addLayer(markers)
+		layerControl.addOverlay(markers,'Parkings');
+	});
+	osmBusStops.then(l=>{
+		map.addLayer(l);
+		layerControl.addOverlay(l,'BusStops');
+	});
 
 	//add drawing toolbar
 	activate_drawing();
@@ -338,9 +524,18 @@ function on_load() {
 
 	L.control.sideBySide(Esri_WorldImagery, landscape).addTo(map);
 
-	//add event listeners
+	//add export button
 
-	//For swipe functionality
+	L.easyButton('fa-folder',function () {
+		if(editsLayer.getLayers().length>0) {
+			onExportCLick(editsLayer);
+		}
+		else{
+			alert('Nothing to export')
+		}
+	}).addTo(map);
+
+	//add event listeners
 
 
 	//drawstart and vertex added events
@@ -351,76 +546,34 @@ function on_load() {
 	});
 
 	//on feature create event
-	map.on('pm:create',createEventHandler)
+	map.on('pm:create',createEventHandler);
 
 	//on feature remove event
 
-	map.on('pm:remove',removeHandler)
-};
+	map.on('pm:remove',removeHandler);
 
+	//events for custom marker size manipulation
+	map.on('zoomend', ()=>{
+		var ExtraMarkers = document.getElementsByClassName("extra-marker");
+		for(l=0; l< ExtraMarkers.length; l++){
+			oldS = ExtraMarkers[l].style.transform;
+			newS = oldS + " scale(0.8) translateY(20%) translateX(20%)";
+			ExtraMarkers[l].style.transform = newS
 
+		}
+	});
+	map.on("layeradd",(layer)=>{
+		if(layer.layer._icon &&
+			layer.layer._icon.classList.contains("extra-marker")){
+			oldS = layer.layer._icon.style.transform;
+			newS = oldS + " scale(0.8) translateY(20%) translateX(20%)" ;
+			layer.layer._icon.style.transform = newS
+		}
+	});
+}
 
 document.addEventListener("DOMContentLoaded", on_load);
 
-// //Marker Version 1
-// L.marker([47, 14], {title:'markerrrrrr', clickable:true}).addTo(map).bindPopup("newpopup");
-//
-// //Marker Version 2
-// var mark = L.marker([47, 12], {title:'markerrrrrr', clickable:true}).addTo(map);
-// mark.bindPopup("this is my popup");
-//
-// //Marker Version 3
-// var myIcon = L.icon({
-// iconUrl: 'src/css/images/house.gif',
-// iconSize: [38, 38]
-// });
-//
-
-
-
-
-//
-//---- Part 4: adding features from the geojson file 
-//const myStyle = {
-// 		"color": "#ff7800",
-// 		"weight": 5,
-// 		"opacity": 0.65
-// 	}
-
-
-
-//the variable federalstateSBG is created in the Federalstates.js file
-
-
-// var track = L.geoJSON(FeatureCollections);
-//
-//
-// fedstate.addTo(map);
-// track.addTo(map);
-//
-// //console.log(hike_tracks.getLayers()[0])
-// //
-// //---- Part 5: Adding a layer control for base maps and feature layers
-// //
-//
-//
-// //the variable features lists layers that I want to control with the layer control
-// var features = {
-// 	"hike_tracks":track,
-// 	"Marker 2": mark,
-// 	"Salzburg": fedstate
-// }
-//
-//
-// //the legend uses the layer control with entries for the base maps and two of the layers we added
-// //in case either base maps or features are not used in the layer control, the respective element in the properties is null
-//
-// //create graph object
-//
-
-// console.log(FeatureCollections)
-// console.log(track)
-// hg.addData(FeatureCollections);
 
 
 

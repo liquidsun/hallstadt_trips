@@ -9,21 +9,20 @@ body, html{
 	overflow: hidden;
 }
 
-div#header{
+#header{
 	display:flex;
 	justify-content:center;
 	align-items:center;
-	position:relative;
-	vertical-align:top;
 	background-color: black;
 	border-bottom: 2px solid grey;
 	width: 100%;
-	height: 5%
+	height: 5%;
 }
 
 p.headings{
+	padding-top: 15px;
 	color:orange;
-	font-size:1vw;
+	font-size: 1.2vw;
 	font-weight: bold;
 }
 
@@ -33,4 +32,25 @@ p.headings{
 	height: 95%;
 	width: 100%;
 	z-index: 1;
+}
+
+
+.custom-popup .leaflet-popup-content-wrapper {
+	background: #ffffff;
+	color: #272727;
+	font-size:14px;
+	min-width: 160px;
+	vertical-align: center;
+	text-align: center;
+}
+
+.custom-popup .leaflet-popup-content {
+	padding: 5px 5px 5px 5px;
+	margin:0;
+}
+.custom-popup .leaflet-popup-tip-container {
+	position:center;
+}
+.custom-popup .leaflet-popup-tip {
+	background: #ffffff;
 }
