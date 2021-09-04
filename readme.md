@@ -1,6 +1,6 @@
-## A leaflet-based web app for hiking routes planning.
+## A leaflet-based web app for hiking routes planning
 
-## [Demo](https://liquidsun.github.io/hallstadt_trips/).
+## [Demo](https://liquidsun.github.io/hallstadt_trips/)
 
 Created for one of the Advanced Cartography course assignements, University of Salzburg.
 
